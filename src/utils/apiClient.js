@@ -1,20 +1,15 @@
 import axios from "axios";
 
-
-
-const quotesApiConfig = {
-  method: "get",
-  maxBodyLength: Infinity,
-  url: "https://candidate.commonroom.builders/quotes?cursor=01K30RB3D0ZEGMNAW1K4T7TC6S",
-  headers: {
-    Authorization:
-      "Bearer REDACTED",
-  },
-};
-
-export const getQuotes = async (path) => {
+export const getQuotes = async (cursor) => {
+  const url = cursor
+    ? `${process.env.quotesBaseUrl}${cursor}`
+    : `${process.env.quotesBaseUrl}/quotes`;
   return axios
-    .request(`${baseuri}${path}`)
+    .get(url, {
+      headers: {
+        Authorization: `Bearer ${process.env.jwt}`,
+      },
+    })
     .then((response) => {
       return {
         quotes: response.data,
@@ -26,10 +21,8 @@ export const getQuotes = async (path) => {
     });
 };
 
-// let oldestQuote;
-
+// sample input:
 // </quotes?cursor=01K30RB3D0ZEGMNAW1K4T7TC6S>; rel=self, </quotes?cursor=01K2Z2QRS06EMQNWHHE3GJ5DEZ>; rel=next
-
 const linksFromHeader = (linkHeaderString) =>
   linkHeaderString.split(",").map((linkUriDescription) => {
     const urire = /<(.*)>/g;
@@ -40,25 +33,37 @@ const linksFromHeader = (linkHeaderString) =>
     };
   });
 
-
-// get the first page
-// parse dates & find oldest
-// compare with the current overall oldest
-// if there's a next link, call that and repeat
-
-// when you're at the end of the pages, there's no next link
-
-const oldestQuote = async (overallOldest, urlToCall) => {
-  getQuotes(path).then((res) => {
+const oldestQuote = async () => {
+  let overallOldestQuote = { created: "9999-12-31T23:59:59.999Z" };
+  let cursorForNextPage = "";
+  while (cursorForNextPage != undefined) {
+    const quotesResponse = await getQuotes(cursorForNextPage);
     const {
-      quotes,
-      headers: { link },
-    } = res;
-    const nextLink = linksFromHeader(link).find(link => link.cursorType == 'next')
+      quotes: batchOfQuotes,
+      headers: { link: allLinksConcatenated },
+    } = quotesResponse;
+    const nextLink = linksFromHeader(allLinksConcatenated).find(
+      (link) => link.cursorType == "next"
+    );
+    cursorForNextPage = nextLink ? nextLink.actualLink : undefined;
 
-
-    console.log(linksFromHeader(link));
-  });
+    const oldestFromBatch = batchOfQuotes.reduce(
+      (oldestQuoteFromBatchAccumulator, currentQuote) => {
+        const oldestFromBatchMillis = Date.parse(oldestQuoteFromBatchAccumulator.created);
+        const currentMillis = Date.parse(currentQuote.created);
+        return currentMillis < oldestFromBatchMillis ? currentQuote : oldestQuoteFromBatchAccumulator;
+      }
+    );
+    
+    const overallOldestMillis = Date.parse(overallOldestQuote.created);
+    const batchOldestMillis = Date.parse(oldestFromBatch.created);
+    
+    if (batchOldestMillis < overallOldestMillis) {
+      overallOldestQuote = oldestFromBatch;
+    }
+  }
+  console.log('the oldest quote is:')
+  console.log(JSON.stringify(overallOldestQuote,null,2));
 };
 
 oldestQuote();

@@ -1,2 +1,4 @@
 node_modules
 localDev
+.env
+.DS_Store
